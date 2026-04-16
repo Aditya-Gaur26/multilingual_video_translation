@@ -1,0 +1,71 @@
+# ── Secrets ──────────────────────────────────────────────────────────────────
+.env
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+site/
+
+# ── Virtual environment ───────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+.env/
+
+# ── Pipeline I/O (large media files) ─────────────────────────────────────────
+input/*.mp4
+input/*.mkv
+input/*.avi
+input/*.mov
+input/*.webm
+input/*.wav
+input/*.mp3
+input/*.flac
+input/*.ogg
+
+# Pipeline output (generated artefacts — do not commit)
+output/
+
+# Processed TTS/GCP segment cache
+processed/
+
+# ── Model checkpoints (~300 MB, download automatically) ──────────────────────
+checkpoints_v2/
+
+# Torch hub / HuggingFace caches
+.cache/
+hub/
+
+# ── IDE / Editor ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Testing / coverage ───────────────────────────────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Misc build artefacts ─────────────────────────────────────────────────────
+*.tmp
+*.bak
+*.orig

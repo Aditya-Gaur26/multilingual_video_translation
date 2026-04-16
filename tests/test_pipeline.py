@@ -1,0 +1,124 @@
+"""
+Tests for src/pipeline.py – orchestration, caching, and progress callbacks.
+"""
+
+import json
+import os
+import tempfile
+from unittest.mock import patch, MagicMock
+
+import pytest
+
+from src.transcriber import Segment
+
+
+class TestPipelineCacheHelpers:
+    """Test internal caching helpers."""
+
+    @patch("src.pipeline.ENABLE_CACHE", True)
+    def test_save_and_load_cache(self, tmp_output_dir):
+        from src.pipeline import _save_cache, _load_cache
+
+        _save_cache(tmp_output_dir, "test_key", {"hello": "world"})
+        result = _load_cache(tmp_output_dir, "test_key")
+        assert result == {"hello": "world"}
+
+    @patch("src.pipeline.ENABLE_CACHE", False)
+    def test_cache_disabled(self, tmp_output_dir):
+        from src.pipeline import _save_cache, _load_cache
+
+        _save_cache(tmp_output_dir, "no_cache", {"data": True})
+        result = _load_cache(tmp_output_dir, "no_cache")
+        assert result is None
+
+    @patch("src.pipeline.ENABLE_CACHE", True)
+    def test_load_missing_cache(self, tmp_output_dir):
+        from src.pipeline import _load_cache
+
+        result = _load_cache(tmp_output_dir, "nonexistent_key")
+        assert result is None
+
+
+class TestSegmentsFromDicts:
+    """Test cache round-tripping for segments."""
+
+    def test_segments_round_trip(self, sample_segments):
+        from src.pipeline import _segments_from_dicts
+
+        dicts = [s.to_dict() for s in sample_segments]
+        restored = _segments_from_dicts(dicts)
+        assert len(restored) == len(sample_segments)
+        for orig, rest in zip(sample_segments, restored):
+            assert rest.start == orig.start
+            assert rest.end == orig.end
+            assert rest.text == orig.text
+
+
+class TestProgressCallback:
+    """Test that the pipeline calls the progress callback."""
+
+    def test_noop_progress(self):
+        from src.pipeline import _noop_progress
+
+        # Should not raise
+        _noop_progress(1, 7, "test message")
+
+    def test_custom_progress_called(self):
+        """Verify the pipeline invokes a custom progress callback."""
+        calls = []
+
+        def tracker(step, total, msg):
+            calls.append((step, total, msg))
+
+        # We can't easily run the full pipeline without mocking everything,
+        # but we can verify the signature is correct
+        from src.pipeline import run_pipeline
+        import inspect
+
+        sig = inspect.signature(run_pipeline)
+        assert "progress" in sig.parameters
+
+
+class TestPipelineSignature:
+    """Test run_pipeline accepts all expected parameters."""
+
+    def test_has_target_langs_param(self):
+        from src.pipeline import run_pipeline
+        import inspect
+
+        sig = inspect.signature(run_pipeline)
+        assert "target_langs" in sig.parameters
+
+    def test_has_progress_param(self):
+        from src.pipeline import run_pipeline
+        import inspect
+
+        sig = inspect.signature(run_pipeline)
+        assert "progress" in sig.parameters
+
+    def test_has_tts_engine_param(self):
+        from src.pipeline import run_pipeline
+        import inspect
+
+        sig = inspect.signature(run_pipeline)
+        assert "tts_engine" in sig.parameters
+
+
+class TestPipelinePreflightIntegration:
+    """Test that preflight checks are invoked."""
+
+    @patch("src.pipeline.run_preflight_checks")
+    @patch("src.pipeline.extract_audio", return_value="fake_audio.wav")
+    @patch("src.pipeline.transcribe_audio", return_value=[])
+    @patch("src.pipeline.translate_segments", return_value={})
+    @patch("src.pipeline.generate_all_subtitles", return_value={})
+    @patch("src.pipeline._get_media_duration", return_value=60.0)
+    @patch("src.pipeline.ENABLE_CODE_MIXING", False)
+    @patch("src.pipeline.ENABLE_VOICE_PRESERVATION", False)
+    def test_preflight_called(
+        self, mock_dur, mock_subs, mock_trans, mock_stt, mock_extract, mock_preflight
+    ):
+        from src.pipeline import run_pipeline
+
+        run_pipeline("fake_video.mp4", do_tts=False)
+        mock_preflight.assert_called_once()
