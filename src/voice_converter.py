@@ -537,10 +537,10 @@ def convert_segments_batch(
     else:
         logger.info("[OpenVoice] All %d segments converted successfully", total)
 
-    # GPU / cache cleanup
-    global _converter_cache, _target_se_cache
+    # GPU / cache cleanup — release everything before Wav2Lip or next stage uses the GPU
+    global _converter_cache, _target_se_cache, _resemblyzer_encoder
     try:
-        import torch
+        import gc, torch
         if _converter_cache is not None:
             try:
                 _converter_cache.model.to("cpu")
@@ -549,6 +549,11 @@ def convert_segments_batch(
             del _converter_cache
             _converter_cache = None
         _target_se_cache.clear()
+        # Also free Resemblyzer encoder — it runs on CUDA and holds ~200 MB
+        if _resemblyzer_encoder is not None:
+            del _resemblyzer_encoder
+            _resemblyzer_encoder = None
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()

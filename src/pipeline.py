@@ -497,7 +497,8 @@ def run_pipeline(
             progress(lip_sync_step, total_steps, "Applying lip synchronisation (Wav2Lip)…")
             lip_sync_dir = os.path.join(output_dir, "lipsync")
             os.makedirs(lip_sync_dir, exist_ok=True)
-            processor = LipSyncProcessor()
+            lip_debug_dir = os.path.join(output_dir, "lipsync_debug")
+            processor = LipSyncProcessor(debug_dir=lip_debug_dir)
             lip_sync_results = processor.batch_sync(
                 video_path=video_path,
                 audio_paths=aligned_audio,

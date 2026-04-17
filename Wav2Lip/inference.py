@@ -89,7 +89,8 @@ def face_detect(images):
 	for rect, image in zip(predictions, images):
 		if rect is None:
 			cv2.imwrite('temp/faulty_frame.jpg', image) # check this frame where the face was not detected.
-			raise ValueError('Face not detected! Ensure the video contains a face in all the frames.')
+			results.append(None)  # placeholder — filled in by interpolation below
+			continue
 
 		y1 = max(0, rect[1] - pady1)
 		y2 = min(image.shape[0], rect[3] + pady2)
@@ -97,6 +98,27 @@ def face_detect(images):
 		x2 = min(image.shape[1], rect[2] + padx2)
 		
 		results.append([x1, y1, x2, y2])
+
+	# Fill None entries (frames where face was not detected) by propagating the
+	# nearest valid detection.  This avoids crashing on brief look-aways or
+	# single bad frames while keeping the lip-sync running.
+	# Forward pass: fill from previous valid detection.
+	last_valid = None
+	for i in range(len(results)):
+		if results[i] is not None:
+			last_valid = results[i]
+		elif last_valid is not None:
+			results[i] = last_valid
+	# Backward pass: fill any remaining Nones at the start.
+	last_valid = None
+	for i in range(len(results) - 1, -1, -1):
+		if results[i] is not None:
+			last_valid = results[i]
+		elif last_valid is not None:
+			results[i] = last_valid
+	# If every frame lacked a face, raise the original error.
+	if any(r is None for r in results):
+		raise ValueError('Face not detected! Ensure the video contains a face in all the frames.')
 
 	boxes = np.array(results)
 	if not args.nosmooth: boxes = get_smoothened_boxes(boxes, T=5)

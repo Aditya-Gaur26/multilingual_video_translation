@@ -39,8 +39,7 @@ from src.pipeline import run_pipeline
 from src.video_muxer import create_preview_mp4
 from src.voice_converter import is_openvoice_available
 from src.audio_separator import is_demucs_available
-from src.lip_sync import is_wav2lip_available
-from src.lip_sync import is_wav2lip_available
+from src.lip_sync import is_wav2lip_available, is_wav2lip_repo_present
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Page config
@@ -233,7 +232,8 @@ with st.sidebar:
                 "```\npip install demucs\n```",
             )
     # ── Lip Synchronisation (Wav2Lip) ─────────────────────
-    _wav2lip_available = is_wav2lip_available()
+    _wav2lip_available    = is_wav2lip_available()
+    _wav2lip_repo_present = is_wav2lip_repo_present()
     with st.expander("👄 Lip Synchronisation (Wav2Lip)", expanded=False):
         st.markdown(
             "Makes the speaker's **mouth movements match the dubbed audio** using "
@@ -245,7 +245,7 @@ with st.sidebar:
         if _wav2lip_available:
             enable_lip_sync = st.checkbox(
                 "Enable Lip Synchronisation",
-                value=False,
+                value=True,
                 help=(
                     "Produces one MP4 per target language where the speaker's lips "
                     "are animated to match the dubbed audio. "
@@ -253,10 +253,23 @@ with st.sidebar:
                 ),
             )
             st.caption("✅ Wav2Lip checkpoint found — full lip sync ready.")
+        elif _wav2lip_repo_present:
+            enable_lip_sync = st.checkbox(
+                "Enable Lip Synchronisation",
+                value=True,
+                help=(
+                    "Wav2Lip repo found. Checkpoints will be downloaded automatically "
+                    "(~500 MB, one-time) when lip sync first runs."
+                ),
+            )
+            st.info(
+                "✅ Wav2Lip repo detected — checkpoints will **auto-download (~500 MB)** "
+                "the first time lip sync runs."
+            )
         else:
             enable_lip_sync = st.checkbox(
                 "Enable Lip Synchronisation (audio-swap only)",
-                value=False,
+                value=True,
                 help=(
                     "Wav2Lip not found — will only swap the audio track. "
                     "Install Wav2Lip with its checkpoint for actual facial animation."
@@ -269,8 +282,6 @@ with st.sidebar:
                 "```\n"
                 "git clone https://github.com/Rudrabha/Wav2Lip\n"
                 "pip install -r Wav2Lip/requirements.txt\n"
-                "# Download wav2lip_gan.pth → Wav2Lip/checkpoints/\n"
-                "# Then set env var: WAV2LIP_PATH=/path/to/Wav2Lip\n"
                 "```"
             )
     # ── API key status ─────────────────────────────────────

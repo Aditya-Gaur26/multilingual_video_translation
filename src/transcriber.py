@@ -552,6 +552,20 @@ def _transcribe_whisper(audio_path: str) -> list[Segment]:
         chunks = _merge_into_sentence_chunks(fallback_segs)
 
     chunks = _sanitize_timestamps(chunks)
+
+    # Explicitly free the Whisper model and flush GPU memory so later stages
+    # (OpenVoice, Resemblyzer, Wav2Lip) have the full VRAM budget available.
+    del model
+    try:
+        import gc, torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+            logger.info("Whisper model freed — GPU memory released")
+    except Exception:
+        pass
+
     return chunks
 
 

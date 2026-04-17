@@ -3,6 +3,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Reduce CUDA memory fragmentation — must be set before torch allocates any CUDA memory.
+# Picked up from .env; default to expandable_segments if not already set.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 # ─── API Keys ────────────────────────────────────────────────
 # Add any new API key as  NAME_API_KEY  in your .env file.
 # Register it in the dict below so the rest of the app picks it up.
@@ -111,7 +115,7 @@ DEFAULT_TARGET_LANGS  = ["hi"]     # Translate to Hindi only by default
 DEFAULT_TTS_ENGINE    = "sarvam"   # Sarvam AI TTS – best for Indian languages without GCP key
 SEPARATE_MUSIC        = True        # Always separate background music with Demucs
 ENABLE_VOICE_CLONING  = True        # Apply OpenVoice v2 tone-color transfer by default
-ENABLE_LIP_SYNC       = False       # Wav2Lip lip synchronisation (requires Wav2Lip + checkpoint)
+ENABLE_LIP_SYNC       = True       # Wav2Lip lip synchronisation (requires Wav2Lip + checkpoint)
 
 # ─── Caching ─────────────────────────────────────────────────
 ENABLE_CACHE = True                # Cache intermediate results to allow resume
