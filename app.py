@@ -39,6 +39,8 @@ from src.pipeline import run_pipeline
 from src.video_muxer import create_preview_mp4
 from src.voice_converter import is_openvoice_available
 from src.audio_separator import is_demucs_available
+from src.lip_sync import is_wav2lip_available
+from src.lip_sync import is_wav2lip_available
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Page config
@@ -230,7 +232,47 @@ with st.sidebar:
                 "To enable music separation, run:\n"
                 "```\npip install demucs\n```",
             )
-
+    # ── Lip Synchronisation (Wav2Lip) ─────────────────────
+    _wav2lip_available = is_wav2lip_available()
+    with st.expander("👄 Lip Synchronisation (Wav2Lip)", expanded=False):
+        st.markdown(
+            "Makes the speaker's **mouth movements match the dubbed audio** using "
+            "[Wav2Lip](https://github.com/Rudrabha/Wav2Lip).  "
+            "Produces one MP4 per target language with synced facial animation.  \n\n"
+            "When Wav2Lip is not installed the option still works but only swaps "
+            "the audio (no visual changes)."
+        )
+        if _wav2lip_available:
+            enable_lip_sync = st.checkbox(
+                "Enable Lip Synchronisation",
+                value=False,
+                help=(
+                    "Produces one MP4 per target language where the speaker's lips "
+                    "are animated to match the dubbed audio. "
+                    "A GPU is strongly recommended for speed."
+                ),
+            )
+            st.caption("✅ Wav2Lip checkpoint found — full lip sync ready.")
+        else:
+            enable_lip_sync = st.checkbox(
+                "Enable Lip Synchronisation (audio-swap only)",
+                value=False,
+                help=(
+                    "Wav2Lip not found — will only swap the audio track. "
+                    "Install Wav2Lip with its checkpoint for actual facial animation."
+                ),
+            )
+            st.info(
+                "Wav2Lip is **not installed** — lip sync will run in "
+                "**audio-swap mode** (no visual face changes).\n\n"
+                "To enable full lip sync:\n"
+                "```\n"
+                "git clone https://github.com/Rudrabha/Wav2Lip\n"
+                "pip install -r Wav2Lip/requirements.txt\n"
+                "# Download wav2lip_gan.pth → Wav2Lip/checkpoints/\n"
+                "# Then set env var: WAV2LIP_PATH=/path/to/Wav2Lip\n"
+                "```"
+            )
     # ── API key status ─────────────────────────────────────
     st.divider()
     st.markdown("##### 🔑 Engine Status")
@@ -305,7 +347,7 @@ if uploaded_file is not None:
         status = st.status("Pipeline running…", expanded=True)
 
         # Map pipeline steps to Streamlit progress percentages
-        _STEP_PCT = {0: 2, 1: 15, 2: 35, 3: 55, 4: 62, 5: 78, 6: 90, 7: 98}
+        _STEP_PCT = {0: 2, 1: 15, 2: 35, 3: 55, 4: 62, 5: 78, 6: 90, 7: 98, 8: 99}
 
         def _st_progress(step: int, total: int, message: str) -> None:
             pct = _STEP_PCT.get(step, int(step / max(total, 1) * 100))
@@ -327,12 +369,16 @@ if uploaded_file is not None:
                 enable_prosody=enable_prosody,
                 enable_glossary=enable_glossary,
                 enable_enhancer=enable_enhancer,
+                enable_lip_sync=enable_lip_sync,
                 progress=_st_progress,
             )
 
             subtitle_paths = result.get("subtitles", {})
             aligned_audio = result.get("aligned_audio", {})
             mkv_path = result.get("dubbed_video")
+            lip_synced_videos = result.get("lip_synced_videos", {})
+            lip_sync_used_wav2lip = result.get("lip_sync_used_wav2lip", False)
+            lip_sync_errors = result.get("lip_sync_errors", {})
 
             progress.progress(100, text="Pipeline complete! ✅")
 
@@ -341,10 +387,15 @@ if uploaded_file is not None:
             status.update(label="Pipeline complete!", state="complete")
 
             # Store results in session state for persistent access
+            lip_synced_mkvs = result.get("lip_synced_mkvs", {})
             st.session_state["pipeline_result"] = {
                 "subtitle_paths": subtitle_paths,
                 "aligned_audio": aligned_audio,
                 "mkv_path": mkv_path,
+                "lip_synced_videos": lip_synced_videos,
+                "lip_sync_used_wav2lip": lip_sync_used_wav2lip,
+                "lip_sync_errors": lip_sync_errors,
+                "lip_synced_mkvs": lip_synced_mkvs,
                 "video_path": video_path,
                 "video_name": video_name,
                 "run_output": run_output,
@@ -399,6 +450,10 @@ if "pipeline_result" in st.session_state:
     subtitle_paths = res["subtitle_paths"]
     aligned_audio = res["aligned_audio"]
     mkv_path = res["mkv_path"]
+    lip_synced_videos = res.get("lip_synced_videos", {})
+    lip_sync_used_wav2lip = res.get("lip_sync_used_wav2lip", False)
+    lip_sync_errors = res.get("lip_sync_errors", {})
+    lip_synced_mkvs = res.get("lip_synced_mkvs", {})
     video_path = res["video_path"]
     video_name = res["video_name"]
     run_output = res["run_output"]
@@ -491,17 +546,45 @@ if "pipeline_result" in st.session_state:
                     st.code(f.read(), language=None)
 
     # ── Final dubbed video download ──
+    st.markdown("##### 📥 Downloads")
+
+    # Per-language lip-synced MKVs (preferred when lip sync ran)
+    if lip_synced_mkvs:
+        st.caption(
+            "👄 **Lip-synced MKV** — video frames animated with Wav2Lip + "
+            "enhanced dubbed audio (open in VLC / mpv and select audio/subtitle tracks)"
+        )
+        ls_dl_cols = st.columns(len(lip_synced_mkvs))
+        for i, (lang_code, ls_mkv) in enumerate(sorted(lip_synced_mkvs.items())):
+            lang_name = ALL_LANGUAGES.get(lang_code, {}).get("name", lang_code)
+            with ls_dl_cols[i]:
+                if os.path.isfile(ls_mkv):
+                    with open(ls_mkv, "rb") as f:
+                        ls_bytes = f.read()
+                    size_mb = len(ls_bytes) / (1024 * 1024)
+                    st.download_button(
+                        f"⬇ {lang_name} lip-sync MKV ({size_mb:.1f} MB)",
+                        data=ls_bytes,
+                        file_name=os.path.basename(ls_mkv),
+                        mime="video/x-matroska",
+                        type="primary",
+                        use_container_width=True,
+                    )
+                else:
+                    st.info(f"{lang_name} lip-sync MKV not found")
+
+    # Original multi-language MKV (all audio tracks, no lip-sync video)
     if mkv_path and os.path.isfile(mkv_path):
-        st.markdown("##### 📥 Downloads")
+        label = "⬇ Download multi-language MKV (original video)" if lip_synced_mkvs else "⬇ Download dubbed video"
         with open(mkv_path, "rb") as f:
             mkv_bytes = f.read()
         size_mb = len(mkv_bytes) / (1024 * 1024)
         st.download_button(
-            f"⬇ Download dubbed video ({size_mb:.1f} MB)",
+            f"{label} ({size_mb:.1f} MB)",
             data=mkv_bytes,
             file_name=os.path.basename(mkv_path),
             mime="video/x-matroska",
-            type="primary",
+            type="secondary" if lip_synced_mkvs else "primary",
             use_container_width=True,
         )
 
@@ -542,6 +625,43 @@ if "pipeline_result" in st.session_state:
                     )
                 else:
                     st.info(f"{lang_name} audio not found")
+
+    # ── Lip-synced video downloads ──────────────────────────────
+    if lip_synced_videos:
+        st.markdown("##### 👄 Lip-Synced Videos")
+        if lip_sync_used_wav2lip:
+            st.caption("✅ Sync mode: Wav2Lip (facial animation)")
+        else:
+            st.warning(
+                "⚠️ Lip sync fell back to **audio-swap only** (no facial animation). "
+                "Check the Streamlit console / terminal for the full error. "
+                "Common causes:\n"
+                "- No face detected in the video (Wav2Lip needs a visible face)\n"
+                "- Wav2Lip process failed during inference\n"
+                "See error details below."
+            )
+            if lip_sync_errors:
+                with st.expander("🔍 Wav2Lip error details", expanded=True):
+                    for lang, err in lip_sync_errors.items():
+                        lang_name = TARGET_LANGUAGES.get(lang, {}).get("name", lang)
+                        st.error(f"**{lang_name}**: {err[:1000]}")
+        ls_cols = st.columns(len(lip_synced_videos))
+        for i, (lang, path) in enumerate(lip_synced_videos.items()):
+            lang_name = TARGET_LANGUAGES.get(lang, {}).get("name", lang)
+            with ls_cols[i]:
+                if os.path.isfile(path):
+                    st.video(path)
+                    with open(path, "rb") as f:
+                        vid_bytes = f.read()
+                    size_mb = len(vid_bytes) / (1024 * 1024)
+                    st.download_button(
+                        f"⬇ {lang_name} lip-sync ({size_mb:.1f} MB)",
+                        data=vid_bytes,
+                        file_name=os.path.basename(path),
+                        mime="video/mp4",
+                    )
+                else:
+                    st.info(f"{lang_name} lip-sync video not found")
 
 elif uploaded_file is None:
     # Empty state

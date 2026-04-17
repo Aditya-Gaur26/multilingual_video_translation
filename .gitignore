@@ -38,6 +38,18 @@ processed/
 # ── Model checkpoints (~300 MB, download automatically) ──────────────────────
 checkpoints_v2/
 
+# ── Wav2Lip model weights (too large for GitHub, download separately) ─────────
+# wav2lip_gan.pth   ~416 MB
+# s3fd.pth          ~86 MB
+# Run: python setup_wav2lip.py   to download automatically
+Wav2Lip/checkpoints/*.pth
+Wav2Lip/face_detection/detection/sfd/*.pth
+Wav2Lip/temp/
+Wav2Lip/results/
+
+# Diagnostic output
+diag_output/
+
 # Torch hub / HuggingFace caches
 .cache/
 hub/
