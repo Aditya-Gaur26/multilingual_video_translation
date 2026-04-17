@@ -108,9 +108,10 @@ GLOSSARY_CATEGORIES = None         # None = all, or list of category names
 # ─── Pipeline Defaults ──────────────────────────────────────
 # These are used by pipeline.py and main.py when no explicit value is provided.
 DEFAULT_TARGET_LANGS  = ["hi"]     # Translate to Hindi only by default
-DEFAULT_TTS_ENGINE    = "gcptts_vc"  # GCP Neural2 TTS + OpenVoice v2 voice clone (best quality)
+DEFAULT_TTS_ENGINE    = "sarvam"   # Sarvam AI TTS – best for Indian languages without GCP key
 SEPARATE_MUSIC        = True        # Always separate background music with Demucs
 ENABLE_VOICE_CLONING  = True        # Apply OpenVoice v2 tone-color transfer by default
+ENABLE_LIP_SYNC       = False       # Wav2Lip lip synchronisation (requires Wav2Lip + checkpoint)
 
 # ─── Caching ─────────────────────────────────────────────────
 ENABLE_CACHE = True                # Cache intermediate results to allow resume

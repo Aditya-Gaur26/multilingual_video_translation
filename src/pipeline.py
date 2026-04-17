@@ -55,6 +55,7 @@ from src.voice_converter import (
 from src.audio_separator import (
     separate_audio, mix_all_tracks, is_demucs_available,
 )
+from src.lip_sync import LipSyncProcessor, is_wav2lip_available
 
 logger = logging.getLogger("nptel_pipeline")
 
@@ -140,6 +141,7 @@ def run_pipeline(
     enable_prosody: bool = False,
     enable_glossary: bool = True,
     enable_enhancer: bool = False,
+    enable_lip_sync: bool = False,
 ) -> dict:
     """
     Execute the full lecture-translation pipeline.
@@ -174,7 +176,7 @@ def run_pipeline(
 
     video_name = os.path.splitext(os.path.basename(video_path))[0]
     artefacts: dict = {"video": video_path}
-    total_steps = 7 + (1 if separate_music else 0)
+    total_steps = 7 + (1 if separate_music else 0) + (1 if enable_lip_sync and do_tts else 0)
 
     # ── Preflight checks ─────────────────────────────────────
     progress(0, total_steps, "Running preflight checks…")
@@ -487,8 +489,47 @@ def run_pipeline(
             except Exception as exc:
                 logger.error("Music mix failed: %s", exc)
 
-        # Step 7: Mux into MKV
-        progress(7, total_steps, "Muxing final MKV video")
+        # ── Step 7: Lip synchronisation (before mux so MKV gets synced video) ──
+        lip_synced_videos: dict[str, str] = {}
+        lip_sync_errors: dict[str, str] = {}
+        if enable_lip_sync:
+            lip_sync_step = 7 + (1 if separate_music else 0)
+            progress(lip_sync_step, total_steps, "Applying lip synchronisation (Wav2Lip)…")
+            lip_sync_dir = os.path.join(output_dir, "lipsync")
+            os.makedirs(lip_sync_dir, exist_ok=True)
+            processor = LipSyncProcessor()
+            lip_sync_results = processor.batch_sync(
+                video_path=video_path,
+                audio_paths=aligned_audio,
+                output_dir=lip_sync_dir,
+            )
+            for lang_code, ls_result in lip_sync_results.items():
+                if ls_result.success:
+                    lip_synced_videos[lang_code] = ls_result.output_path
+                    mode = "passthrough" if ls_result.fallback_used else "Wav2Lip"
+                    q = f", quality={ls_result.quality_score:.2f}" if ls_result.quality_score is not None else ""
+                    if ls_result.fallback_used and ls_result.error_message:
+                        lip_sync_errors[lang_code] = ls_result.error_message
+                        logger.error("Lip sync [%s] fell back to %s. Reason: %s",
+                                     lang_code, mode, ls_result.error_message)
+                    else:
+                        logger.info("Lip sync [%s] %s: %s%s", lang_code, mode,
+                                    ls_result.output_path, q)
+                else:
+                    lip_sync_errors[lang_code] = ls_result.error_message or "Unknown error"
+                    logger.error("Lip sync failed for '%s': %s", lang_code, ls_result.error_message)
+
+        artefacts["lip_synced_videos"] = lip_synced_videos
+        artefacts["lip_sync_errors"] = lip_sync_errors
+        artefacts["lip_sync_used_wav2lip"] = any(
+            not r.fallback_used for r in lip_sync_results.values() if r.success
+        ) if enable_lip_sync else False
+
+        # ── Step 8 (was 7): Mux into MKV ─────────────────────────────────
+        mux_step = total_steps
+        progress(mux_step, total_steps, "Muxing final MKV video")
+
+        # Standard multi-language MKV (original video, all audio tracks)
         mkv_path = os.path.join(output_dir, f"{video_name}_dubbed.mkv")
         try:
             mux_to_mkv(
@@ -500,6 +541,28 @@ def run_pipeline(
             artefacts["dubbed_video"] = mkv_path
         except Exception as exc:
             logger.error("MKV muxing failed: %s", exc)
+
+        # Per-language lip-synced MKVs (lip-synced video + that language's audio)
+        lip_synced_mkvs: dict[str, str] = {}
+        for lang_code, lipsync_mp4 in lip_synced_videos.items():
+            if not os.path.isfile(lipsync_mp4):
+                continue
+            ls_mkv = os.path.join(output_dir, f"{video_name}_lipsync_{lang_code}.mkv")
+            try:
+                mux_to_mkv(
+                    original_video=video_path,          # original English audio source
+                    video_source=lipsync_mp4,           # lip-synced video frames
+                    audio_tracks={lang_code: aligned_audio[lang_code]},
+                    subtitle_tracks={lang_code: subtitle_paths[lang_code]}
+                        if lang_code in subtitle_paths else {},
+                    output_path=ls_mkv,
+                )
+                lip_synced_mkvs[lang_code] = ls_mkv
+                logger.info("Lip-synced MKV: %s", ls_mkv)
+            except Exception as exc:
+                logger.error("Lip-synced MKV muxing failed for %s: %s", lang_code, exc)
+
+        artefacts["lip_synced_mkvs"] = lip_synced_mkvs
     else:
         logger.info("Steps 5-7 (TTS / Alignment / Muxing) skipped")
 

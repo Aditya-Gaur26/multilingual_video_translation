@@ -26,6 +26,7 @@ def mux_to_mkv(
     subtitle_tracks: dict[str, str],
     output_path: str,
     original_audio_label: str = "English (Original)",
+    video_source: str | None = None,
 ) -> str:
     """
     Create a single MKV file with all streams.
@@ -36,27 +37,43 @@ def mux_to_mkv(
         subtitle_tracks:     lang_code → path to .srt file.
         output_path:         Destination .mkv path.
         original_audio_label: Display name for the original audio track.
+        video_source:        If set, take the video track from this file instead of
+                             original_video (used for lip-synced MKVs where the video
+                             frames come from a Wav2Lip-processed MP4).
 
     Returns:
         Path to the generated MKV file.
     """
     os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
 
+    use_separate_video = video_source is not None and video_source != original_video
+
     # ── Build the ffmpeg command ──────────────────────────────────────────
     cmd: list[str] = ["ffmpeg", "-y"]
 
-    # Input 0: original video (video + English audio)
-    cmd += ["-i", original_video]
+    if use_separate_video:
+        # Input 0: lip-synced video (video track only — audio ignored)
+        cmd += ["-i", video_source]
+        # Input 1: original video (English audio only — video ignored)
+        cmd += ["-i", original_video]
+        video_input_idx = 0
+        orig_audio_input_idx = 1
+        input_idx = 2
+    else:
+        # Input 0: original video (video + English audio)
+        cmd += ["-i", original_video]
+        video_input_idx = 0
+        orig_audio_input_idx = 0
+        input_idx = 1
 
-    # Inputs 1..N: dubbed audio files
+    # Inputs N..M: dubbed audio files
     audio_input_map: list[tuple[int, str]] = []  # (input_index, lang_code)
-    input_idx = 1
     for lang_code in sorted(audio_tracks):
         cmd += ["-i", audio_tracks[lang_code]]
         audio_input_map.append((input_idx, lang_code))
         input_idx += 1
 
-    # Inputs N+1..M: subtitle files
+    # Inputs M+1..: subtitle files
     sub_input_map: list[tuple[int, str]] = []
     for lang_code in sorted(subtitle_tracks):
         cmd += ["-i", subtitle_tracks[lang_code]]
@@ -64,11 +81,11 @@ def mux_to_mkv(
         input_idx += 1
 
     # ── Map streams ───────────────────────────────────────────────────────
-    # Video from input 0
-    cmd += ["-map", "0:v:0"]
+    # Video from the appropriate input
+    cmd += ["-map", f"{video_input_idx}:v:0"]
 
-    # Original English audio from input 0
-    cmd += ["-map", "0:a:0"]
+    # Original English audio
+    cmd += ["-map", f"{orig_audio_input_idx}:a:0"]
 
     # Dubbed audio tracks
     for inp_idx, _lang in audio_input_map:
